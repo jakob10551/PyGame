@@ -1,32 +1,28 @@
 import pygame
-import random
+import csv
 import sys
 
-# -------------------------
-# CONFIG
-# -------------------------
+# --- CONFIG & INIT ---
 WIDTH, HEIGHT = 800, 600
 FPS = 60
+pygame.init()
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+clock = pygame.time.Clock()
+font = pygame.font.SysFont("Arial", 32)
 
 PLAYER_SPEED = 5
 BULLET_SPEED = 7
-ENEMY_SPEED = 1
 ENEMY_DROP = 30
 ENEMY_ROWS = 4
 ENEMY_COLS = 8
 
-# -------------------------
-# INIT
-# -------------------------
-pygame.init()
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Space Invaders Clone")
-clock = pygame.time.Clock()
-font = pygame.font.SysFont(None, 36)
+RUN_COUNT = 0
+ADD_SCORE = 10
 
-# -------------------------
-# CLASSES
-# -------------------------
+
+
+
+# --- CLASSES ---
 class Player:
     def __init__(self):
         self.rect = pygame.Rect(WIDTH // 2 - 25, HEIGHT - 60, 50, 30)
@@ -62,110 +58,159 @@ class Enemy:
         pygame.draw.rect(surface, (255, 0, 0), self.rect)
 
 
-# -------------------------
-# GAME SETUP
-# -------------------------
-player = Player()
-bullets = []
-enemies = []
+# --- HELPER FUNCTIONS ---
+def get_top_score(filename="high_scores.csv"):
+    try:
+        with open(filename, mode='r') as file:
+            reader = csv.reader(file)
+            scores = [int(row[1]) for row in reader if row]
+            return max(scores) if scores else 0
+    except (FileNotFoundError, ValueError):
+        return 0
 
-# Create enemy grid
-def create_enemy_grid():
+
+def create_enemy_grid(enemies):
     for row in range(ENEMY_ROWS):
         for col in range(ENEMY_COLS):
-            x = 80 + col * 70
-            y = 50 + row * 50
-            enemies.append(Enemy(x, y))
+            enemies.append(Enemy(80 + col * 70, 50 + row * 50))
 
-enemy_direction = 1
-score = 0
-
-create_enemy_grid()
 
 # -------------------------
-# GAME LOOP
+# PHASE 1: THE ACTUAL GAME
 # -------------------------
-running = True
-while running:
-    clock.tick(FPS)
+def run_game():
+    global ADD_SCORE
+    player = Player()
+    bullets = []
+    enemies = []
+    create_enemy_grid(enemies)
 
-    # ---- EVENTS ----
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
+    current_enemy_speed = 2  # Start speed
+    enemy_direction = 1
+    score = 0
+    high_score = get_top_score()
+    game_running = True
 
-        if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                bullets.append(Bullet(player.rect.centerx, player.rect.top))
+    while game_running:
+        clock.tick(FPS)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit();
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    bullets.append(Bullet(player.rect.centerx, player.rect.top))
 
-    # ---- INPUT ----
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_LEFT]:
-        player.move(-1)
-    if keys[pygame.K_RIGHT]:
-        player.move(1)
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT]: player.move(-1)
+        if keys[pygame.K_RIGHT]: player.move(1)
 
-    # ---- UPDATE BULLETS ----
-    for bullet in bullets[:]:
-        bullet.update()
-        if bullet.off_screen():
-            bullets.remove(bullet)
+        for bullet in bullets[:]:
+            bullet.update()
+            if bullet.off_screen(): bullets.remove(bullet)
 
-    # ---- UPDATE ENEMIES ----
-    move_down = False
-    for enemy in enemies:
-        enemy.rect.x += enemy_direction * ENEMY_SPEED
-        if enemy.rect.right >= WIDTH or enemy.rect.left <= 0:
-            move_down = True
-
-    if move_down:
-        enemy_direction *= -1
+        move_down = False
         for enemy in enemies:
-            enemy.rect.y += ENEMY_DROP
+            enemy.rect.x += enemy_direction * current_enemy_speed
+            if enemy.rect.right >= WIDTH or enemy.rect.left <= 0: move_down = True
 
-    # ---- COLLISIONS ----
-    for bullet in bullets[:]:
-        for enemy in enemies[:]:
-            if bullet.rect.colliderect(enemy.rect):
-                bullets.remove(bullet)
-                enemies.remove(enemy)
-                score += 10
-                break
-    for enemy in enemies:
-        if enemy.rect.colliderect(player.rect):
-            running = False
-            break
+        if move_down:
+            enemy_direction *= -1
+            for enemy in enemies: enemy.rect.y += ENEMY_DROP
 
-    if len(enemies) == 0:
-        create_enemy_grid()
-        ENEMY_SPEED = ENEMY_SPEED + 1
+        for bullet in bullets[:]:
+            for enemy in enemies[:]:
+                if bullet.rect.colliderect(enemy.rect):
+                    bullets.remove(bullet)
+                    enemies.remove(enemy)
+                    score += ADD_SCORE
+                    if score > high_score: high_score = score
+                    break
 
-    # ---- GAME OVER ----
-    for enemy in enemies:
-        if enemy.rect.bottom >= HEIGHT:
-            running = False
+        for enemy in enemies:
+            if enemy.rect.colliderect(player.rect) or enemy.rect.bottom >= HEIGHT:
 
+                game_running = False
 
+        if not enemies:
 
-    # ---- DRAW ----
-    screen.fill((0, 0, 0))
+            create_enemy_grid(enemies)
+            ADD_SCORE += 10
+            current_enemy_speed += 1
 
-    player.draw(screen)
+        screen.fill((0, 0, 0))
+        player.draw(screen)
+        for b in bullets: b.draw(screen)
+        for e in enemies: e.draw(screen)
 
-    for bullet in bullets:
-        bullet.draw(screen)
+        score_surf = font.render(f"Score: {score}", True, (255, 255, 255))
+        hi_surf = font.render(f"High Score: {high_score}", True, (255, 255, 0))
+        screen.blit(score_surf, (10, 10))
+        screen.blit(hi_surf, hi_surf.get_rect(topright=(WIDTH - 10, 10)))
 
-    for enemy in enemies:
-        enemy.draw(screen)
+        pygame.display.flip()
 
+    return score
 
-    score_text = font.render(f"Score: {score}", True, (255, 255, 255))
-    screen.blit(score_text, (10, 10))
-
-    pygame.display.flip()
 
 # -------------------------
-# CLEANUP
+# PHASE 2: NAME ENTRY
 # -------------------------
-pygame.quit()
-sys.exit()
+def save_score_screen(score):
+    user_text = ""
+    typing = True
+    while typing:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit();
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    with open("high_scores.csv", "a", newline="") as f:
+                        writer = csv.writer(f)
+                        writer.writerow([user_text if user_text else "Player", score])
+                    typing = False
+                elif event.key == pygame.K_BACKSPACE:
+                    user_text = user_text[:-1]
+                else:
+                    if len(user_text) < 10:
+                        user_text += event.unicode
+
+        screen.fill((20, 20, 20))
+        screen.blit(font.render(f"GAME OVER! Score: {score}", True, (255, 0, 0)), (WIDTH // 2 - 150, 200))
+        screen.blit(font.render(f"Enter Name: {user_text}", True, (255, 255, 255)), (WIDTH // 2 - 150, 260))
+        screen.blit(font.render("Press Enter to Save", True, (100, 100, 100)), (WIDTH // 2 - 150, 320))
+        pygame.display.flip()
+
+
+# -------------------------
+# PHASE 3: RESTART MENU
+# -------------------------
+def main_menu():
+    while True:
+        global ADD_SCORE
+        final_score = run_game()
+        save_score_screen(final_score)
+
+        waiting = True
+        while waiting:
+            screen.fill((0, 0, 0))
+            screen.blit(font.render("Press 'R' to Restart or 'Q' to Quit", True, (255, 255, 255)),
+                        (WIDTH // 2 - 200, HEIGHT // 2))
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit();
+                    sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        ADD_SCORE = 10
+                        waiting = False  # This goes back to run_game()
+                    if event.key == pygame.K_q:
+                        pygame.quit();
+                        sys.exit()
+
+
+if __name__ == "__main__":
+    main_menu()
